@@ -1,7 +1,14 @@
+export interface Word {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface SubtitleSegment {
   startTime: number; // in seconds
   endTime: number;   // in seconds
   text: string;
+  words?: Word[];    // Optional word-level timing
 }
 
 export interface VideoState {

@@ -1,11 +1,11 @@
 import { pipeline } from '@xenova/transformers';
-import { SubtitleSegment } from '../types';
+import { SubtitleSegment, Word } from '../types';
 import { extractAudioData } from '../utils/audioUtils';
 
 // Singleton to hold the pipeline instance
 let transcriber: any = null;
 
-const WORDS_PER_SEGMENT = 5; // Target words per subtitle segment (4-5 requested)
+const WORDS_PER_SEGMENT = 5; // Target words per subtitle segment
 
 export const generateSubtitles = async (videoFile: File, onProgress?: (msg: string) => void): Promise<SubtitleSegment[]> => {
   try {
@@ -22,7 +22,6 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
     if (onProgress) onProgress("Transcribing Audio (may take a moment)...");
     
     // Run transcription with word-level timestamps
-    // force_full_sequences: false helps with short audio accuracy sometimes
     const output = await transcriber(audioData, {
       chunk_length_s: 30,
       stride_length_s: 5,
@@ -34,7 +33,7 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
     const segments: SubtitleSegment[] = [];
     const chunks = output.chunks || [];
 
-    // Fallback if chunks are empty but text exists (extremely short audio or failure)
+    // Fallback if chunks are empty but text exists
     if (chunks.length === 0 && output.text) {
         return [{
             startTime: 0,
@@ -44,7 +43,7 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
     }
 
     // Process word chunks into segments
-    let currentWords: string[] = [];
+    let currentWords: Word[] = [];
     let segmentStart: number | null = null;
     let segmentEnd: number | null = null;
 
@@ -58,14 +57,18 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
             segmentStart = start;
         }
 
-        // Add word
-        currentWords.push(text);
+        // Add word with timing
+        currentWords.push({
+            text: text.trim(),
+            start: start,
+            end: end
+        });
         segmentEnd = end;
 
         // Check if we reached the word limit or if there's a significant pause
         const isLimitReached = currentWords.length >= WORDS_PER_SEGMENT;
         
-        // Look ahead for pauses (optional heuristic: if next word is > 0.5s away)
+        // Look ahead for pauses
         let hasPause = false;
         if (i < chunks.length - 1) {
              const nextStart = chunks[i+1].timestamp[0];
@@ -75,16 +78,12 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
         }
 
         if (isLimitReached || hasPause) {
-            // FIX: Map to trim and join with space to prevent mashed words (e.g. "Thsilence")
-            const cleanText = currentWords.map(w => w.trim()).filter(w => w.length > 0).join(' ');
-            
-            if (cleanText) {
-                segments.push({
-                    startTime: segmentStart!,
-                    endTime: segmentEnd!,
-                    text: cleanText
-                });
-            }
+            segments.push({
+                startTime: segmentStart!,
+                endTime: segmentEnd!,
+                text: currentWords.map(w => w.text).join(' '),
+                words: [...currentWords]
+            });
 
             // Reset
             currentWords = [];
@@ -95,14 +94,12 @@ export const generateSubtitles = async (videoFile: File, onProgress?: (msg: stri
 
     // Add remaining words
     if (currentWords.length > 0 && segmentStart !== null && segmentEnd !== null) {
-        const cleanText = currentWords.map(w => w.trim()).filter(w => w.length > 0).join(' ');
-        if (cleanText) {
-            segments.push({
-                startTime: segmentStart,
-                endTime: segmentEnd,
-                text: cleanText
-            });
-        }
+        segments.push({
+            startTime: segmentStart,
+            endTime: segmentEnd,
+            text: currentWords.map(w => w.text).join(' '),
+            words: [...currentWords]
+        });
     }
 
     return segments;

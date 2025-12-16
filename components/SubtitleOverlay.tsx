@@ -14,14 +14,23 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({ currentTime, subtitle
 
   if (!activeSegment) return null;
 
-  // Simple karaoke logic: Calculate progress 0-1 within the segment duration
-  const duration = activeSegment.endTime - activeSegment.startTime;
-  const progress = Math.max(0, Math.min(1, (currentTime - activeSegment.startTime) / duration));
+  const words = activeSegment.words ? activeSegment.words.map(w => w.text) : activeSegment.text.split(' ');
   
-  const words = activeSegment.text.split(' ');
-  const totalWords = words.length;
-  // Determine how many words should be highlighted based on progress
-  const highlightedIndex = Math.floor(progress * totalWords);
+  // Calculate highlighted index
+  let highlightedIndex = -1;
+  
+  if (activeSegment.words) {
+      // Precise word-level highlighting
+      // Highlight words that have started
+      // We check if currentTime is greater than the start of the word. 
+      // To make it feel "fast" and responsive, we can even highlight as soon as it starts.
+      highlightedIndex = activeSegment.words.filter(w => currentTime >= w.start).length - 1;
+  } else {
+      // Fallback: Linear interpolation
+      const duration = activeSegment.endTime - activeSegment.startTime;
+      const progress = Math.max(0, Math.min(1, (currentTime - activeSegment.startTime) / duration));
+      highlightedIndex = Math.floor(progress * words.length);
+  }
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-end">
@@ -33,7 +42,7 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({ currentTime, subtitle
                         key={index} 
                         className={`
                             font-black uppercase tracking-wide mx-1 inline-block
-                            transition-colors duration-100
+                            transition-colors duration-75
                             ${index <= highlightedIndex ? 'text-brand-accent' : 'text-white'}
                         `}
                         style={{

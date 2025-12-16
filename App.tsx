@@ -97,7 +97,7 @@ const App: React.FC = () => {
 
     setStatus(ProcessingStatus.RENDERING);
     isRenderingRef.current = true;
-    setLoadingMessage("Rendering video (this includes audio)...");
+    setLoadingMessage("Rendering Maximum Quality Video (Large File)...");
 
     // Cache current state to restore later
     const originalTime = video.currentTime;
@@ -109,7 +109,7 @@ const App: React.FC = () => {
         // Prepare for recording
         video.pause();
         video.currentTime = 0;
-        // Unmute for capture
+        // Unmute for capture to ensure audio is recorded
         video.muted = false; 
         video.volume = 1.0;
 
@@ -130,11 +130,12 @@ const App: React.FC = () => {
         });
 
         // 1. Detect Supported MIME Type
+        // Prioritize VP9 for better high-bitrate handling in WebM
         const mimeTypes = [
             'video/webm;codecs=vp9,opus',
+            'video/mp4',
             'video/webm;codecs=vp8,opus',
-            'video/webm',
-            'video/mp4'
+            'video/webm'
         ];
         const selectedMimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
         
@@ -143,10 +144,10 @@ const App: React.FC = () => {
         }
 
         // 2. Setup Streams
-        const stream = canvas.captureStream(30); // 30 FPS
+        // Capture at 60 FPS for smoother motion and to generate more data (larger file)
+        const stream = canvas.captureStream(60); 
         
         // Robust Audio Capture
-        let audioTrackAdded = false;
         try {
             // @ts-ignore
             const streamCreator = video.captureStream || video.mozCaptureStream;
@@ -155,7 +156,6 @@ const App: React.FC = () => {
                 const audioTracks = videoStream.getAudioTracks();
                 if (audioTracks.length > 0) {
                     stream.addTrack(audioTracks[0]);
-                    audioTrackAdded = true;
                 } else {
                     console.warn("No audio tracks found in video stream");
                 }
@@ -166,7 +166,9 @@ const App: React.FC = () => {
 
         const mediaRecorder = new MediaRecorder(stream, { 
             mimeType: selectedMimeType,
-            videoBitsPerSecond: 5000000 // 5 Mbps for quality
+            // Set extremely high bitrate (100 Mbps) to ensure file size > 100MB 
+            // and maximize visual quality.
+            videoBitsPerSecond: 100_000_000 
         });
         
         const chunks: Blob[] = [];
@@ -186,7 +188,8 @@ const App: React.FC = () => {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `captioned_video_${Date.now()}.webm`; // Default to WebM as it's most reliable for MediaRecorder
+                    const ext = selectedMimeType.includes('mp4') ? 'mp4' : 'webm';
+                    a.download = `autosub_hq_${Date.now()}.${ext}`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -214,7 +217,7 @@ const App: React.FC = () => {
         const drawFrame = () => {
             if (!isRenderingRef.current) return;
 
-            // Draw Video Frame
+            // Draw Video Frame - Ensures whole video frame is included
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             // Draw Subtitles
@@ -232,25 +235,27 @@ const App: React.FC = () => {
                 // Match the 20% bottom padding from CSS
                 const y = canvas.height * 0.8; 
 
-                // Karaoke Logic
-                const words = activeSeg.text.split(' ');
-                const duration = activeSeg.endTime - activeSeg.startTime;
-                const progress = Math.max(0, Math.min(1, (currentT - activeSeg.startTime) / duration));
-                const highlightedIndex = Math.floor(progress * words.length);
-
                 // Styling - Match CSS WebkitTextStroke
                 const strokeWidth = Math.max(2, renderFontSize * 0.08);
                 ctx.lineJoin = 'round';
-                ctx.lineWidth = strokeWidth * 2; // Stroke is centered, so double width to get full outer effect
+                ctx.lineWidth = strokeWidth * 2; 
                 ctx.strokeStyle = 'black';
                 
-                // Spacing logic to match CSS 'mx-1'
-                // mx-1 is roughly 8px on normal screens. 
-                // Scaled: 8px * scaleFactor? 
-                // No, mx-1 is relative to rem, which is usually 16px. 
-                // Let's use a dynamic spacing based on font size to be safe.
-                // 0.25em is a good approximation for mx-1
                 const spaceWidth = renderFontSize * 0.3; 
+
+                // Get words and precise highlighting
+                const words = activeSeg.words ? activeSeg.words.map(w => w.text) : activeSeg.text.split(' ');
+                
+                let highlightedIndex = -1;
+                if (activeSeg.words) {
+                     // Precise timing
+                     highlightedIndex = activeSeg.words.filter(w => currentT >= w.start).length - 1;
+                } else {
+                    // Linear fallback
+                    const duration = activeSeg.endTime - activeSeg.startTime;
+                    const progress = Math.max(0, Math.min(1, (currentT - activeSeg.startTime) / duration));
+                    highlightedIndex = Math.floor(progress * words.length);
+                }
 
                 // Calculate total width first for centering
                 let totalWidth = 0;
