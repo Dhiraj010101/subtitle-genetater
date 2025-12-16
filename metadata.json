@@ -1,0 +1,5 @@
+{
+  "name": "AutoSub 9:16 (Free)",
+  "description": "Free client-side subtitle generator using browser-based AI (Whisper). Optimized for 9:16 videos with editable karaoke captions.",
+  "requestFramePermissions": []
+}
